@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # 邮件中转服务（163 SMTP）
+  email-relay:
+    build: ./apps/email-relay
+    container_name: tapcanvas-email-relay
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      SMTP_HOST: smtp.163.com
+      SMTP_PORT: 465
+      SMTP_SECURE: "true"
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+    restart: unless-stopped
+    networks:
+      - tapcanvas-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - email-relay-logs:/app/logs
+
+  # SQLite 数据库文件 (D1 本地模拟)
+  # 如果使用 Cloudflare D1，则无需此服务
+  # 对于本地开发，创建 db 卷用于持久化
+
+  # Hono API (Cloudflare Workers 本地开发)
+  # 在开发模式下使用 wrangler dev
+  # 在生产模式下，部署到 Cloudflare Workers
+  # 对于本地 Docker 部署，需要自建 Node.js 服务器
+
+  # 前端应用
+  web:
+    build: 
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: tapcanvas-web
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8787}
+    restart: unless-stopped
+    networks:
+      - tapcanvas-network
+    volumes:
+      - web-logs:/app/logs
+    depends_on:
+      - email-relay
+
+networks:
+  tapcanvas-network:
+    driver: bridge
+
+volumes:
+  email-relay-logs:
+  web-logs:

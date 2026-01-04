@@ -1,0 +1,23 @@
+{
+  "name": "@tapcanvas/email-relay",
+  "version": "1.0.0",
+  "description": "Email relay service for TapCanvas using nodemailer + 163 SMTP",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": ["email", "nodemailer", "smtp", "163"],
+  "author": "TapCanvas",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "nodemailer": "^6.9.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

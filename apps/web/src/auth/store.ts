@@ -1,0 +1,115 @@
+import { create } from 'zustand'
+
+export type User = { sub: string|number; login: string; name?: string; avatarUrl?: string; email?: string; role?: string|null; guest?: boolean }
+
+function base64UrlDecode(input: string): string {
+  input = input.replace(/-/g, '+').replace(/_/g, '/')
+  const pad = input.length % 4
+  if (pad) input += '='.repeat(4 - pad)
+  try { return atob(input) } catch { return '' }
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+function decodeJwtUser(token: string | null): User | null {
+  if (!token) return null
+  const parts = token.split('.')
+  if (parts.length < 2) return null
+  try {
+    const payload = JSON.parse(base64UrlDecode(parts[1]))
+    const u: User = { sub: payload.sub, login: payload.login, name: payload.name, avatarUrl: payload.avatarUrl, email: payload.email, role: payload.role ?? null, guest: payload.guest }
+    return u
+  } catch { return null }
+}
+
+const initialToken = (() => {
+  const local = typeof localStorage !== 'undefined' ? localStorage.getItem('tap_token') : null
+  if (local) return local
+  return readCookie('tap_token')
+})()
+const initialUser = (() => {
+  const decoded = decodeJwtUser(initialToken)
+  const cachedRaw = localStorage.getItem('tap_user')
+  const cached = (() => {
+    if (!cachedRaw) return null
+    try {
+      return JSON.parse(cachedRaw) as User
+    } catch {
+      return null
+    }
+  })()
+
+  // Prefer token as source of truth (especially for role), then fill from cached.
+  if (decoded && cached) {
+    return { ...cached, ...decoded, role: decoded.role ?? cached.role ?? null }
+  }
+  return decoded || cached
+})()
+
+type AuthState = {
+  token: string | null
+  user: User | null
+  loading: boolean
+  login: (code: string, state?: string) => Promise<void>
+  setAuth: (token: string, user?: User | null) => void
+  clear: () => void
+}
+
+export const useAuth = create<AuthState>((set, get) => ({
+  token: initialToken,
+  user: initialUser,
+  loading: false,
+  login: async (code: string, state?: string) => {
+    set({ loading: true })
+    try {
+      const response = await fetch('/api/auth/github', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code, state }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Authentication failed')
+      }
+
+      const data = await response.json()
+      get().setAuth(data.token, data.user)
+    } catch (error) {
+      console.error('Login failed:', error)
+      throw error
+    } finally {
+      set({ loading: false })
+    }
+  },
+  setAuth: (token, user) => {
+    localStorage.setItem('tap_token', token)
+    const decoded = decodeJwtUser(token)
+    const u = (() => {
+      if (!decoded && !user) return null
+      const merged: User = { ...(user || ({} as any)), ...(decoded || ({} as any)) }
+      merged.role = (user as any)?.role ?? decoded?.role ?? null
+      merged.sub = (user as any)?.sub ?? decoded?.sub
+      merged.login = (user as any)?.login ?? decoded?.login
+      merged.name = (user as any)?.name ?? decoded?.name
+      merged.avatarUrl = (user as any)?.avatarUrl ?? decoded?.avatarUrl
+      merged.email = (user as any)?.email ?? decoded?.email
+      merged.guest = (user as any)?.guest ?? decoded?.guest
+      return merged
+    })()
+    if (u) localStorage.setItem('tap_user', JSON.stringify(u)); else localStorage.removeItem('tap_user')
+    set({ token, user: u || null })
+  },
+  clear: () => { localStorage.removeItem('tap_token'); localStorage.removeItem('tap_user'); set({ token: null, user: null }) },
+}))
+
+export function getAuthToken() {
+  const local = typeof localStorage !== 'undefined' ? localStorage.getItem('tap_token') : null
+  return local || getAuthTokenFromCookie()
+}
+export function getAuthTokenFromCookie() { return readCookie('tap_token') }
